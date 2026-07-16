@@ -5,6 +5,15 @@ hashicorp_repo_url: >-
   {{ 'https://rpm.releases.hashicorp.com/fedora/' ~ ansible_facts['distribution_major_version'] ~ '/$basearch/stable' if ansible_facts['distribution'] == 'Fedora' else 'https://rpm.releases.hashicorp.com/RHEL/9/$basearch/stable' }}
 install_powershell: >-
   {{ ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution'] != 'Fedora' }}
+install_codex: false
+install_aws_agent_toolkit: false
+aws_default_region: ""
+aws_agent_toolkit_region: us-east-1
+aws_cli_bin: "{{ ansible_env.HOME }}/.local/bin/aws"
+aws_shell_rc_path: "{{ ansible_env.HOME }}/{{ '.zshrc' if ((ansible_env.SHELL | default('/bin/bash')) | basename) == 'zsh' else '.bashrc' }}"
+aws_agent_rules_url: https://raw.githubusercontent.com/aws/agent-toolkit-for-aws/refs/heads/main/rules/aws-agent-rules.md
+codex_vscode_extension: OpenAI.chatgpt
+codex_rules_path: "{{ playbook_dir }}/AGENTS.md"
 base_tooling_packages:
   - code
   - terraform
@@ -31,4 +40,16 @@ post_install_guidelines: |
      C. If using a self-hosted GitHub Enterprise Server (GHES), add:
         "github.copilot.advanced": { "authProvider": "github-enterprise" }
         to your settings.json.
+
+  4. OpenAI Codex Setup:
+     If enabled with install_codex=true, the OpenAI Codex VS Code extension
+     has been installed. Open VS Code and sign in to Codex with your ChatGPT
+     account.
+
+  5. AWS Agent Toolkit Setup:
+     If enabled with install_aws_agent_toolkit=true, the AWS Agent Toolkit
+     has been configured with aws configure agent-toolkit in us-east-1 and
+     AWS Codex guidance has been saved to AGENTS.md.
+     AWS credentials created by aws login are valid for 12 hours and can be
+     renewed for 90 days without re-authenticating in the browser.
   ======================================================================

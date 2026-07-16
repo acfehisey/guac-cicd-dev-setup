@@ -54,7 +54,7 @@
 
         - name: Install Development Tooling via DNF
           ansible.builtin.dnf:
-            name: "{{ base_tooling_packages + (['powershell'] if install_powershell else []) }}"
+            name: "{{ base_tooling_packages + (['powershell'] if (install_powershell | bool) else []) }}"
             state: present
             update_cache: true
 
@@ -69,7 +69,91 @@
       failed_when:
         - vscode_ext_install.rc != 0
         - "'already installed' not in vscode_ext_install.stderr"
-      loop: "{{ vscode_extensions + (['ms-vscode.powershell'] if install_powershell else []) }}"
+      loop: "{{ vscode_extensions + (['ms-vscode.powershell'] if (install_powershell | bool) else []) + ([codex_vscode_extension] if (install_codex | bool) else []) }}"
+
+    - name: Install and configure AWS Agent Toolkit for Codex
+      when: install_aws_agent_toolkit | bool
+      block:
+        - name: Require AWS default Region for Agent Toolkit setup
+          ansible.builtin.assert:
+            that:
+              - aws_default_region is defined
+              - aws_default_region | length > 0
+            fail_msg: "Set aws_default_region before enabling install_aws_agent_toolkit, for example: -e 'install_aws_agent_toolkit=true aws_default_region=us-east-2'."
+
+        - name: Explain AWS Agent Toolkit authentication behavior
+          ansible.builtin.debug:
+            msg:
+              - "AWS Agent Toolkit setup uses aws login browser authentication."
+              - "Do not provide AWS access keys or secret keys to this playbook."
+              - "Credentials are valid for 12 hours and can be renewed for 90 days without re-authenticating in the browser."
+
+        - name: Verify network access to AWS CLI downloads
+          ansible.builtin.uri:
+            url: https://awscli.amazonaws.com
+            method: HEAD
+            status_code:
+              - 200
+              - 301
+              - 302
+              - 403
+            timeout: 15
+          changed_when: false
+
+        - name: Install or update AWS CLI v2 with AWS installer
+          ansible.builtin.shell: |
+            set -o pipefail
+            curl -fsSL 'https://awscli.amazonaws.com/v2/install.sh' | bash
+          args:
+            executable: /bin/bash
+          register: aws_cli_install
+          changed_when: aws_cli_install.rc == 0
+
+        - name: Persist local bin on PATH for future shells
+          ansible.builtin.lineinfile:
+            path: "{{ aws_shell_rc_path }}"
+            line: 'export PATH="$HOME/.local/bin:$PATH"'
+            create: true
+            mode: '0644'
+
+        - name: Verify AWS CLI installation
+          ansible.builtin.command: "{{ aws_cli_bin }} --version"
+          register: aws_cli_version
+          changed_when: false
+
+        - name: Configure default AWS Region
+          ansible.builtin.command: "{{ aws_cli_bin }} configure set region {{ aws_default_region }}"
+          changed_when: false
+
+        - name: Log in to AWS with browser-based authentication
+          ansible.builtin.command: "{{ aws_cli_bin }} login --region {{ aws_default_region }}"
+          changed_when: false
+
+        - name: Verify AWS credentials
+          ansible.builtin.command: "{{ aws_cli_bin }} sts get-caller-identity"
+          register: aws_caller_identity
+          changed_when: false
+
+        - name: Configure AWS Agent Toolkit
+          ansible.builtin.command: "{{ aws_cli_bin }} configure agent-toolkit --yes --region {{ aws_agent_toolkit_region }}"
+          register: aws_agent_toolkit_configure
+          changed_when: aws_agent_toolkit_configure.rc == 0
+          failed_when: false
+
+        - name: Configure AWS Agent Toolkit without --yes if the AWS CLI does not support it
+          ansible.builtin.command: "{{ aws_cli_bin }} configure agent-toolkit --region {{ aws_agent_toolkit_region }}"
+          when: aws_agent_toolkit_configure.rc != 0
+          changed_when: true
+
+        - name: Verify AWS Agent Toolkit skills catalog
+          ansible.builtin.command: "{{ aws_cli_bin }} agent-toolkit list-available-skills --region {{ aws_agent_toolkit_region }}"
+          changed_when: false
+
+        - name: Save AWS guidance for Codex to AGENTS.md
+          ansible.builtin.get_url:
+            url: "{{ aws_agent_rules_url }}"
+            dest: "{{ codex_rules_path }}"
+            mode: '0644'
 
     - name: Display Post-Installation Guidelines
       ansible.builtin.debug:

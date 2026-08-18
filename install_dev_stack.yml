@@ -1,12 +1,26 @@
 ---
 - name: Install Development Stack Add-On (RPM Only)
-  hosts: "{{ target_hosts | default('localhost') }}"
-  connection: "{{ 'local' if (target_hosts | default('localhost')) == 'localhost' else 'smart' }}"
+  hosts: localhost
+  connection: local
   vars_files:
     - vars/main.yml
   # Removed global 'become: true'. Privilege escalation is now targeted.
 
   tasks:
+    - name: Confirm local-only execution
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'localhost'
+          - ansible_connection == 'local'
+        fail_msg: "This playbook is supported only for local workstation configuration. Remote inventory execution is intentionally unsupported."
+
+    - name: Confirm supported Linux platform
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == 'RedHat'
+          - ansible_facts['distribution_major_version'] == '9'
+        fail_msg: "Unsupported platform. This playbook currently supports local RHEL-family 9 workstations only."
+
     # =====================================================================
     # SYSTEM CONFIGURATION (RUNS AS ROOT VIA SUDO)
     # =====================================================================
@@ -33,7 +47,7 @@
             gpgcheck: true
             gpgkey: "{{ item.key }}"
           loop:
-            - name: vscode
+            - name: code
               desc: Visual Studio Code
               url: https://packages.microsoft.com/yumrepos/vscode
               key: https://packages.microsoft.com/keys/microsoft.asc
@@ -62,7 +76,11 @@
     # USER CONFIGURATION (RUNS NATIVELY AS THE EXECUTING USER)
     # =====================================================================
     - name: Install VS Code extensions
-      ansible.builtin.command: "code --install-extension {{ item }}"
+      ansible.builtin.command:
+        argv:
+          - code
+          - --install-extension
+          - "{{ item }}"
       # No become_user or $HOME spoofing needed. Runs cleanly as the developer.
       register: vscode_ext_install
       changed_when: "'was successfully installed' in vscode_ext_install.stdout"
@@ -154,6 +172,21 @@
             url: "{{ aws_agent_rules_url }}"
             dest: "{{ codex_rules_path }}"
             mode: '0644'
+
+    - name: Ensure VS Code user configuration directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.config/Code/User"
+        state: directory
+        mode: '0700'
+      when: credal_api_token | length > 0
+
+    - name: Configure VS Code Credal custom endpoint when token is provided
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/.config/Code/User/chatLanguageModels.json"
+        mode: '0600'
+        content: "{{ credal_language_models | to_nice_json }}\n"
+      no_log: true
+      when: credal_api_token | length > 0
 
     - name: Display Post-Installation Guidelines
       ansible.builtin.debug:

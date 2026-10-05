@@ -37,7 +37,7 @@ Remote inventory execution is intentionally unsupported. The playbook fails earl
 #### Clone the repository
 
 ```bash
-git clone https://github.com/evanhisey/cicd-dev-setup.git
+git clone https://github.com/acfehisey/guac-cicd-dev-setup.git
 cd cicd-dev-setup
 ```
 
